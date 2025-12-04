@@ -1,6 +1,6 @@
-import { GoogleGenAI } from "@google/genai";
-
-const API_KEY = "AIzaSyDQpdTeRrPk-6iYgz8zOlgdW7UitohoWzA";
+ignoreimport { GoogleGenAI } from "@google/genai";
+// @ts-ignore
+const API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
 
 /**
  * Helps a user write a better barter offer using Gemini.
