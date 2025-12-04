@@ -1,8 +1,8 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
 
 const API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
-
-/**
+ 
+/** // <--- הוספתי כאן רווח בשורה הריקה כדי לכפות עדכון
  * Helps a user write a better barter offer using Gemini.
  */
 export const optimizeOfferDescription = async (rawInput: string): Promise<{
