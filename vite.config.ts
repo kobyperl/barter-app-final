@@ -6,5 +6,11 @@ export default defineConfig({
   plugins: [react()],
   build: {
     outDir: 'dist',
+rollupOptions: {
+      external: [
+        // הוספנו את התיקון הזה כדי לפתור את שגיאת Rollup
+        '@google/generative-ai'
+      ]
+    }
   }
 });
