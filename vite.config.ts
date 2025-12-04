@@ -10,6 +10,7 @@ rollupOptions: {
       external: [
         // הוספנו את התיקון הזה כדי לפתור את שגיאת Rollup
         '@google/generative-ai'
+        
       ]
     }
   }
