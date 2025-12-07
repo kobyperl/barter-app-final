@@ -3,7 +3,7 @@ import { getAuth } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
 
 const firebaseConfig = {
-  apiKey: "AIzaSyC8b2B9twtEvjNW9W6yF8MriqAICyd0F64",
+  apiKey: apiKey, 
   authDomain: "barter-app-final.firebaseapp.com",
   projectId: "barter-app-final",
   storageBucket: "barter-app-final.firebasestorage.app",
