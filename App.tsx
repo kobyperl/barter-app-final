@@ -1,3 +1,5 @@
+
+
 import React, { useState, useEffect, useRef } from 'react';
 // Core Components
 import { Navbar } from './components/Navbar';
@@ -25,7 +27,7 @@ import { CompleteProfileModal } from './components/CompleteProfileModal';
 // Data & Types
 import { CATEGORIES, COMMON_INTERESTS, ADMIN_EMAIL } from './constants';
 import { Filter, MapPin, Clock, Repeat, Search, ChevronDown, ChevronUp, LayoutGrid, List as ListIcon, Plus, ArrowUpDown, X as XIcon, Loader2 } from 'lucide-react';
-import { Message, UserProfile, BarterOffer, ExpertiseLevel, SystemAd } from './types';
+import { Message, UserProfile, BarterOffer, ExpertiseLevel, SystemAd, SystemTaxonomy } from './types';
 
 // Firebase
 import { auth, db } from './services/firebaseConfig';
@@ -37,7 +39,14 @@ import {
   deleteDoc, 
   onSnapshot,
   QuerySnapshot,
-  DocumentData
+  DocumentData,
+  deleteField,
+  arrayUnion,
+  arrayRemove,
+  getDocs,
+  query,
+  where,
+  writeBatch
 } from 'firebase/firestore';
 import { 
   createUserWithEmailAndPassword, 
@@ -55,9 +64,13 @@ export const App: React.FC = () => {
   const [systemAds, setSystemAds] = useState<SystemAd[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   
-  // Custom Data
-  const [customCategories, setCustomCategories] = useState<string[]>([]);
-  const [customInterests, setCustomInterests] = useState<string[]>([]);
+  // System Taxonomy State (Categories/Sectors)
+  const [taxonomy, setTaxonomy] = useState<SystemTaxonomy>({
+      approvedCategories: [],
+      pendingCategories: [],
+      approvedInterests: [],
+      pendingInterests: []
+  });
 
   // --- Initial Data Loading from Firebase ---
   useEffect(() => {
@@ -86,11 +99,27 @@ export const App: React.FC = () => {
         setMessages(fetchedMessages);
     });
 
+    // Listen to Taxonomy (Categories/Interests)
+    const unsubscribeTaxonomy = onSnapshot(doc(db, "system_metadata", "taxonomy"), (docSnap) => {
+        if (docSnap.exists()) {
+            setTaxonomy(docSnap.data() as SystemTaxonomy);
+        } else {
+            // Initialize if not exists
+            setDoc(doc(db, "system_metadata", "taxonomy"), {
+                approvedCategories: CATEGORIES,
+                pendingCategories: [],
+                approvedInterests: COMMON_INTERESTS,
+                pendingInterests: []
+            });
+        }
+    });
+
     return () => {
       unsubscribeUsers();
       unsubscribeOffers();
       unsubscribeAds();
       unsubscribeMessages();
+      unsubscribeTaxonomy();
     };
   }, []);
 
@@ -109,14 +138,13 @@ export const App: React.FC = () => {
 
   // --- Computed Lists ---
   const availableInterests = React.useMemo(() => {
-    const userInterests = users.flatMap(u => u.interests || []);
-    return Array.from(new Set([...COMMON_INTERESTS, ...customInterests, ...userInterests])).sort();
-  }, [users, customInterests]);
+    return Array.from(new Set([...(taxonomy.approvedInterests || COMMON_INTERESTS)])).sort();
+  }, [taxonomy.approvedInterests]);
 
   const availableCategories = React.useMemo(() => {
-    const userFields = users.map(u => u.mainField).filter(Boolean);
-    return Array.from(new Set([...CATEGORIES, ...customCategories, ...userFields])).sort();
-  }, [users, customCategories]);
+    // Show both Approved and Pending (if user added them)
+    return Array.from(new Set([...(taxonomy.approvedCategories || CATEGORIES)])).sort();
+  }, [taxonomy.approvedCategories]);
 
   // --- UI State ---
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
@@ -194,24 +222,59 @@ export const App: React.FC = () => {
     return () => clearTimeout(timer);
   }, [keywordInput]);
 
+  // --- Helper: Check for New Category ---
+  const checkForNewCategory = async (category: string) => {
+      if (!category) return;
+      const trimmedCat = category.trim();
+      // If category is not in approved list and not already in pending
+      if (!taxonomy.approvedCategories.includes(trimmedCat) && !taxonomy.pendingCategories?.includes(trimmedCat)) {
+          try {
+              await updateDoc(doc(db, "system_metadata", "taxonomy"), {
+                  pendingCategories: arrayUnion(trimmedCat)
+              });
+          } catch (error) {
+              console.error("Error adding pending category", error);
+          }
+      }
+  };
+
+  // --- Helper: Check for New Interest ---
+  const checkForNewInterest = async (interest: string) => {
+      if (!interest) return;
+      const trimmed = interest.trim();
+      if (!taxonomy.approvedInterests.includes(trimmed) && !taxonomy.pendingInterests?.includes(trimmed)) {
+          try {
+              await updateDoc(doc(db, "system_metadata", "taxonomy"), {
+                  pendingInterests: arrayUnion(trimmed)
+              });
+          } catch (e) { console.error(e); }
+      }
+  };
+
   // --- Handlers (FIREBASE IMPLEMENTATION) ---
   const handleUpdateProfile = async (updatedProfileData: UserProfile) => {
       try {
+          // Check for new category
+          if (updatedProfileData.mainField) {
+              await checkForNewCategory(updatedProfileData.mainField);
+          }
+
           const isAdmin = currentUser?.role === 'admin';
           let updatedUser: UserProfile;
 
           if (isAdmin) {
-              updatedUser = { ...updatedProfileData, pendingUpdate: undefined };
+              const { pendingUpdate, ...dataToSave } = updatedProfileData;
+              const finalData = {
+                  ...dataToSave,
+                  pendingUpdate: deleteField()
+              };
+              await setDoc(doc(db, "users", updatedProfileData.id), finalData, { merge: true });
           } else {
-              const { pendingUpdate, ...currentMainData } = users.find(u => u.id === updatedProfileData.id) || updatedProfileData;
-              updatedUser = {
-                  ...currentMainData,
-                  pendingUpdate: { ...updatedProfileData }
-              } as UserProfile;
+              const { id, role, pendingUpdate: p, ...dataToUpdate } = updatedProfileData;
+              await updateDoc(doc(db, "users", updatedProfileData.id), {
+                  pendingUpdate: dataToUpdate
+              });
           }
-          
-          await setDoc(doc(db, "users", updatedUser.id), updatedUser, { merge: true });
-          if (currentUser?.id === updatedUser.id) setCurrentUser(updatedUser);
       } catch (error) {
           console.error("Error updating profile:", error);
           alert("שגיאה בעדכון הפרופיל");
@@ -221,23 +284,54 @@ export const App: React.FC = () => {
   const handleApproveUserUpdate = async (userId: string) => {
       const user = users.find(u => u.id === userId);
       if (!user || !user.pendingUpdate) return;
-      const updatedUser: UserProfile = { ...user, ...user.pendingUpdate, pendingUpdate: undefined };
+
+      // Check for new category in pending update
+      if (user.pendingUpdate.mainField) {
+         await checkForNewCategory(user.pendingUpdate.mainField);
+      }
+
+      const { pendingUpdate, ...baseUserData } = user;
+      const finalData = {
+          ...baseUserData,
+          ...pendingUpdate,
+          pendingUpdate: deleteField()
+      };
+
       try {
-          await setDoc(doc(db, "users", userId), updatedUser);
-          if (selectedProfile?.id === userId) setSelectedProfile(updatedUser);
-      } catch (error) { console.error(error); }
+          await setDoc(doc(db, "users", userId), finalData, { merge: true });
+          if (selectedProfile?.id === userId) {
+              setSelectedProfile({ ...user, ...pendingUpdate, pendingUpdate: undefined } as UserProfile);
+          }
+      } catch (error) { 
+          console.error("Error approving update:", error); 
+          alert("שגיאה באישור השינויים");
+      }
   };
 
   const handleRejectUserUpdate = async (userId: string) => {
       try {
-        await updateDoc(doc(db, "users", userId), { pendingUpdate: undefined });
+        await updateDoc(doc(db, "users", userId), { 
+            pendingUpdate: deleteField() 
+        });
+        
         const user = users.find(u => u.id === userId);
-        if (user && selectedProfile?.id === userId) setSelectedProfile({ ...user, pendingUpdate: undefined });
-      } catch (error) { console.error(error); }
+        if (user && selectedProfile?.id === userId) {
+             const originalUser = { ...user, pendingUpdate: undefined };
+             setSelectedProfile(originalUser);
+        }
+      } catch (error) { 
+          console.error("Error rejecting update:", error);
+          alert("שגיאה בדחיית השינויים");
+      }
   };
 
   const handleRegister = async (newUser: Partial<UserProfile>, pass: string) => {
     try {
+        // Check for new category
+        if (newUser.mainField) {
+            await checkForNewCategory(newUser.mainField);
+        }
+
         const userCredential = await createUserWithEmailAndPassword(auth, newUser.email!, pass);
         const uid = userCredential.user.uid;
         const userProfile: UserProfile = {
@@ -262,6 +356,68 @@ export const App: React.FC = () => {
     } catch (error: any) { alert(`שגיאה בהרשמה: ${error.message}`); }
   };
 
+  // --- Admin Category Management Handlers ---
+  const handleApproveCategory = async (category: string) => {
+      try {
+          await updateDoc(doc(db, "system_metadata", "taxonomy"), {
+              approvedCategories: arrayUnion(category),
+              pendingCategories: arrayRemove(category)
+          });
+      } catch (e) { console.error(e); }
+  };
+
+  const handleRejectCategory = async (category: string) => {
+      try {
+          // Just remove from pending
+          await updateDoc(doc(db, "system_metadata", "taxonomy"), {
+              pendingCategories: arrayRemove(category)
+          });
+      } catch (e) { console.error(e); }
+  };
+
+  const handleReassignCategory = async (oldCategory: string, newCategory: string) => {
+      try {
+          // 1. Find all users with old category
+          const q = query(collection(db, "users"), where("mainField", "==", oldCategory));
+          const querySnapshot = await getDocs(q);
+          
+          // 2. Batch update users
+          const batch = writeBatch(db);
+          querySnapshot.forEach((doc) => {
+              batch.update(doc.ref, { mainField: newCategory });
+          });
+          await batch.commit();
+
+          // 3. Remove old from pending
+          await updateDoc(doc(db, "system_metadata", "taxonomy"), {
+              pendingCategories: arrayRemove(oldCategory)
+          });
+          
+          alert(`עודכנו ${querySnapshot.size} משתמשים. התחום הוסר מהרשימה הממתינה.`);
+
+      } catch (e) { console.error("Error reassigning", e); alert("שגיאה בשינוי קטגוריה גורף"); }
+  };
+
+  // --- Admin Interest Management Handlers ---
+  const handleApproveInterest = async (interest: string) => {
+      try {
+          await updateDoc(doc(db, "system_metadata", "taxonomy"), {
+              approvedInterests: arrayUnion(interest),
+              pendingInterests: arrayRemove(interest)
+          });
+      } catch (e) { console.error(e); }
+  };
+
+  const handleRejectInterest = async (interest: string) => {
+      try {
+          await updateDoc(doc(db, "system_metadata", "taxonomy"), {
+              pendingInterests: arrayRemove(interest),
+              approvedInterests: arrayRemove(interest)
+          });
+      } catch (e) { console.error(e); }
+  };
+
+  // --- Other Handlers ---
   const handleLogin = async (email: string, pass: string) => {
     try {
         await signInWithEmailAndPassword(auth, email, pass);
@@ -554,7 +710,24 @@ export const App: React.FC = () => {
       <UsersListModal isOpen={isUserManagementOpen} onClose={() => setIsUserManagementOpen(false)} users={users} currentUser={currentUser} onDeleteUser={(id) => deleteDoc(doc(db, "users", id))} onApproveUpdate={handleApproveUserUpdate} onRejectUpdate={handleRejectUserUpdate} onViewProfile={handleViewProfile} />
       <AdminOffersModal isOpen={isAdminOffersOpen} onClose={() => setIsAdminOffersOpen(false)} offers={offers} onDeleteOffer={handleDeleteOffer} onBulkDelete={handleBulkDelete} onApproveOffer={handleApproveOffer} onEditOffer={(offer) => { setEditingOffer(offer); setIsCreateModalOpen(true); setIsAdminOffersOpen(false); }} onViewProfile={handleViewProfile} />
       <AdminAdManager isOpen={isAdManagerOpen} onClose={() => setIsAdManagerOpen(false)} ads={systemAds} availableInterests={availableInterests} availableCategories={availableCategories} onAddAd={handleAddAd} onEditAd={handleEditAd} onDeleteAd={handleDeleteAd} />
-      <AdminAnalyticsModal isOpen={isAdminAnalyticsOpen} onClose={() => setIsAdminAnalyticsOpen(false)} users={users} availableCategories={availableCategories} availableInterests={availableInterests} onAddCategory={(cat) => setCustomCategories(p => [...p, cat])} onAddInterest={(int) => setCustomInterests(p => [...p, int])} onDeleteCategory={(cat) => setCustomCategories(p => p.filter(c => c !== cat))} onDeleteInterest={(int) => setCustomInterests(p => p.filter(i => i !== int))} />
+      <AdminAnalyticsModal 
+        isOpen={isAdminAnalyticsOpen} 
+        onClose={() => setIsAdminAnalyticsOpen(false)} 
+        users={users} 
+        availableCategories={availableCategories} 
+        availableInterests={availableInterests} 
+        onAddCategory={(cat) => checkForNewCategory(cat)} // Fix: use helper to trigger approval logic
+        onAddInterest={(int) => checkForNewInterest(int)}
+        onDeleteCategory={handleRejectCategory}
+        onDeleteInterest={handleRejectInterest}
+        pendingCategories={taxonomy.pendingCategories}
+        pendingInterests={taxonomy.pendingInterests}
+        onApproveCategory={handleApproveCategory}
+        onRejectCategory={handleRejectCategory}
+        onReassignCategory={handleReassignCategory}
+        onApproveInterest={handleApproveInterest}
+        onRejectInterest={handleRejectInterest}
+      />
       <HowItWorksModal isOpen={isHowItWorksOpen} onClose={() => setIsHowItWorksOpen(false)} />
       <WhoIsItForModal isOpen={isWhoIsItForOpen} onClose={() => setIsWhoIsItForOpen(false)} onOpenAuth={() => { setAuthStartOnRegister(true); setIsAuthModalOpen(true); }} />
       <SearchTipsModal isOpen={isSearchTipsOpen} onClose={() => setIsSearchTipsOpen(false)} onStartSearching={() => { setIsSearchTipsOpen(false); window.scrollTo({ top: 600, behavior: 'smooth' }); }} />
