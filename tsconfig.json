@@ -11,8 +11,7 @@
     ],
     "skipLibCheck": true,
     "types": [
-      "node",
-      "vite/client"
+      "node"
     ],
     "moduleResolution": "bundler",
     "isolatedModules": true,
@@ -26,10 +25,5 @@
     },
     "allowImportingTsExtensions": true,
     "noEmit": true
-  },
-  "include": [
-    ".", // זה מוסיף את כל הקבצים בתיקייה הראשית (כולל vite-env.d.ts)
-    "**/*.ts",
-    "**/*.tsx"
-  ]
+  }
 }

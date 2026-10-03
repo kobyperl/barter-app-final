@@ -1,5 +1,4 @@
 
-
 export enum ExpertiseLevel {
   JUNIOR = 'מתחיל',
   MID = 'בינוני',
@@ -18,10 +17,12 @@ export interface UserProfile {
   portfolioImages?: string[]; // New: Visual portfolio gallery
   expertise: ExpertiseLevel;
   mainField: string; // Used for ad targeting and relevance
+  secondaryFields?: string[]; // New: Allow up to 3 fields in registration
   interests?: string[]; // New: For personalization (Sports, Baking, etc.)
   bio?: string;
   joinedAt?: string;
   pendingUpdate?: Partial<UserProfile>; // Staging area for profile changes requiring approval
+  lastSmartMatchSent?: string; // Timestamp for throttling smart match emails
 }
 
 export interface Rating {
@@ -58,6 +59,7 @@ export interface Message {
   id: string;
   senderId: string;
   receiverId: string;
+  participantIds: string[]; // חובה! נדרש עבור חוקי האבטחה החדשים
   senderName: string;
   receiverName: string;
   subject: string;
@@ -77,4 +79,12 @@ export interface SystemAd {
   targetInterests: string[]; // Subject Matters / User Interests (e.g., "Music", "Sports")
   subLabel?: string; // Optional text to appear at the bottom (e.g., "Sponsored") - if empty, nothing shows
   isActive: boolean;
+}
+
+export interface SystemTaxonomy {
+  approvedCategories: string[];
+  pendingCategories: string[];
+  approvedInterests: string[];
+  pendingInterests?: string[];
+  categoryHierarchy?: Record<string, string>; // Child Category -> Parent Category Name
 }

@@ -1,565 +1,648 @@
-import React, { useState, useEffect, useRef } from 'react';
+
+import React, { useState, useEffect, useMemo } from 'react';
 // Core Components
 import { Navbar } from './components/Navbar';
 import { Hero } from './components/Hero';
 import { AdBanner } from './components/AdBanner';
 import { OfferCard } from './components/OfferCard';
 import { Footer } from './components/Footer';
+import { FilterBar } from './components/FilterBar';
 
 // Modals
 import { CreateOfferModal } from './components/CreateOfferModal';
 import { MessagingModal } from './components/MessagingModal';
 import { AuthModal } from './components/AuthModal';
 import { ProfileModal } from './components/ProfileModal';
-import { UsersListModal } from './components/UsersListModal';
-import { AdminOffersModal } from './components/AdminOffersModal';
 import { HowItWorksModal } from './components/HowItWorksModal';
 import { WhoIsItForModal } from './components/WhoIsItForModal';
 import { SearchTipsModal } from './components/SearchTipsModal';
-import { AdminAdManager } from './components/AdminAdManager';
-import { AdminAnalyticsModal } from './components/AdminAnalyticsModal';
 import { AccessibilityModal } from './components/AccessibilityModal';
 import { CookieConsentModal } from './components/CookieConsentModal';
-import { CompleteProfileModal } from './components/CompleteProfileModal';
+import { PrivacyPolicyModal } from './components/PrivacyPolicyModal';
+import { AccessibilityToolbar } from './components/AccessibilityToolbar';
+import { AdminDashboardModal } from './components/AdminDashboardModal';
+import { EmailCenterModal } from './components/EmailCenterModal';
+import { PostRegisterPrompt } from './components/PostRegisterPrompt';
+import { ProfessionalismPrompt } from './components/ProfessionalismPrompt';
 
 // Data & Types
 import { CATEGORIES, COMMON_INTERESTS, ADMIN_EMAIL } from './constants';
-import { Filter, MapPin, Clock, Repeat, Search, ChevronDown, ChevronUp, LayoutGrid, List as ListIcon, Plus, ArrowUpDown, X as XIcon, Loader2 } from 'lucide-react';
-import { Message, UserProfile, BarterOffer, ExpertiseLevel, SystemAd } from './types';
+import { Plus, Loader2, ChevronDown } from 'lucide-react';
+import { Message, UserProfile, BarterOffer, ExpertiseLevel, SystemAd, SystemTaxonomy } from './types';
 
 // Firebase
-import { auth, db } from './services/firebaseConfig';
-import { 
-  collection, 
-  doc, 
-  setDoc, 
-  updateDoc, 
-  deleteDoc, 
-  onSnapshot,
-  QuerySnapshot,
-  DocumentData
-} from 'firebase/firestore';
-import { 
-  createUserWithEmailAndPassword, 
-  signInWithEmailAndPassword, 
-  signOut, 
-  onAuthStateChanged 
-} from 'firebase/auth';
+import firebase, { auth, db } from './services/firebaseConfig';
+
+const translateAuthError = (code: string) => {
+  switch (code) {
+    case 'auth/email-already-in-use': return 'האימייל הזה כבר רשום במערכת.';
+    case 'auth/invalid-email': return 'כתובת האימייל אינה תקינה.';
+    case 'auth/weak-password': return 'הסיסמה חלשה מדי (צריך לפחות 6 תווים).';
+    case 'auth/user-not-found': return 'לא נמצא משתמש עם האימייל הזה.';
+    case 'auth/wrong-password': return 'הסיסמה שהזנת שגויה.';
+    default: return 'אירעה שגיאה בתהליך האימות.';
+  }
+};
+
+// --- Email Templates Helpers ---
+const getWelcomeHtml = (name: string) => `
+  <div style="direction: rtl; text-align: right; font-family: Arial, sans-serif; background-color: #f8fafc; padding: 20px; border-radius: 8px; border: 1px solid #e2e8f0;">
+    <h1 style="color: #0d9488; margin-bottom: 16px;">ברוכים הבאים ל-Barter.org.il!</h1>
+    <p style="font-size: 16px; color: #334155; line-height: 1.6;">
+      היי ${name},<br/><br/>
+      איזה כיף שהצטרפת לקהילה שלנו!<br/>
+      הפלטפורמה שלנו נועדה לאפשר לך לסחור בכישרון שלך, לחסוך בהוצאות ולהרחיב את הנטוורקינג העסקי שלך.<br/><br/>
+      <strong>מה כדאי לעשות עכשיו?</strong><br/>
+      כדי שאנשים יפנו אליך, אתה חייב לפרסם הצעה ראשונה. זה לוקח דקה ופותח לך דלת לעולם של אפשרויות.
+    </p>
+    <div style="margin-top: 24px; text-align: center;">
+      <a href="https://barter.org.il" style="display: inline-block; background-color: #0d9488; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold;">העלאת הצעה ראשונה</a>
+    </div>
+    <p style="font-size: 12px; color: #94a3b8; margin-top: 30px; text-align: center;">
+      © Barter.org.il
+    </p>
+  </div>
+`;
+
+const getChatHtml = (receiverName: string, senderName: string) => `
+  <div style="direction: rtl; text-align: right; font-family: Arial, sans-serif; background-color: #f8fafc; padding: 20px; border-radius: 8px; border: 1px solid #e2e8f0;">
+    <h1 style="color: #0d9488; margin-bottom: 16px;">הודעה חדשה מחכה לך</h1>
+    <p style="font-size: 16px; color: #334155; line-height: 1.6;">
+      היי ${receiverName},<br/><br/>
+      <strong>${senderName}</strong> שלח/ה לך הודעה חדשה בצ'אט באתר.<br/>
+      שיתופי הפעולה הטובים ביותר נסגרים מהר - כדאי להיכנס ולהגיב.
+    </p>
+    <div style="margin-top: 24px; text-align: center;">
+      <a href="https://barter.org.il" style="display: inline-block; background-color: #0d9488; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold;">מעבר לצ'אט</a>
+    </div>
+  </div>
+`;
+
+const getSmartMatchHtml = (name: string) => `
+  <div style="direction: rtl; text-align: right; font-family: Arial, sans-serif; background-color: #f8fafc; padding: 20px; border-radius: 8px; border: 1px solid #e2e8f0;">
+    <h1 style="color: #0d9488; margin-bottom: 16px;">מצאנו התאמה עבורך!</h1>
+    <p style="font-size: 16px; color: #334155; line-height: 1.6;">
+      היי ${name},<br/><br/>
+      האלגוריתם שלנו זיהה הצעות חדשות שעלו לאתר ומתאימות בול לפרופיל המקצועי ולתחומי העניין שלך.<br/>
+      ההזדמנויות האלו מחכות לך עכשיו ב"במיוחד בשבילך".
+    </p>
+    <div style="margin-top: 24px; text-align: center;">
+      <a href="https://barter.org.il" style="display: inline-block; background-color: #0d9488; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold;">צפה בהתאמות</a>
+    </div>
+  </div>
+`;
 
 export const App: React.FC = () => {
-  // --- Data State ---
   const [users, setUsers] = useState<UserProfile[]>([]);
   const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);
+  const [authUid, setAuthUid] = useState<string | null>(null);
   const [offers, setOffers] = useState<BarterOffer[]>([]);
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [systemAds, setSystemAds] = useState<SystemAd[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
   
-  // Custom Data
-  const [customCategories, setCustomCategories] = useState<string[]>([]);
-  const [customInterests, setCustomInterests] = useState<string[]>([]);
+  // Split state for messages to strictly comply with Firestore Rules
+  const [sentMessagesMap, setSentMessagesMap] = useState<Record<string, Message>>({});
+  const [receivedMessagesMap, setReceivedMessagesMap] = useState<Record<string, Message>>({});
+  
+  const [systemAds, setSystemAds] = useState<SystemAd[]>([]);
+  const [isAuthChecking, setIsAuthChecking] = useState(true);
+  const [isOffersLoading, setIsOffersLoading] = useState(true);
+  
+  const [taxonomy, setTaxonomy] = useState<SystemTaxonomy>({
+      approvedCategories: [], pendingCategories: [], approvedInterests: [], pendingInterests: [], categoryHierarchy: {}
+  });
 
-  // --- Initial Data Loading from Firebase ---
+  // 1. Auth Listener
   useEffect(() => {
-    const unsubscribeUsers = onSnapshot(collection(db, "users"), (snapshot: QuerySnapshot<DocumentData>) => {
-      const fetchedUsers: UserProfile[] = [];
-      snapshot.forEach((doc) => fetchedUsers.push(doc.data() as UserProfile));
-      setUsers(fetchedUsers);
-    });
-
-    const unsubscribeOffers = onSnapshot(collection(db, "offers"), (snapshot: QuerySnapshot<DocumentData>) => {
-      const fetchedOffers: BarterOffer[] = [];
-      snapshot.forEach((doc) => fetchedOffers.push(doc.data() as BarterOffer));
-      setOffers(fetchedOffers);
-      setIsLoading(false);
-    });
-
-    const unsubscribeAds = onSnapshot(collection(db, "systemAds"), (snapshot: QuerySnapshot<DocumentData>) => {
-      const fetchedAds: SystemAd[] = [];
-      snapshot.forEach((doc) => fetchedAds.push(doc.data() as SystemAd));
-      setSystemAds(fetchedAds);
-    });
-
-    const unsubscribeMessages = onSnapshot(collection(db, "messages"), (snapshot: QuerySnapshot<DocumentData>) => {
-        const fetchedMessages: Message[] = [];
-        snapshot.forEach((doc) => fetchedMessages.push(doc.data() as Message));
-        setMessages(fetchedMessages);
-    });
-
-    return () => {
-      unsubscribeUsers();
-      unsubscribeOffers();
-      unsubscribeAds();
-      unsubscribeMessages();
-    };
-  }, []);
-
-  // --- Auth Listener ---
-  useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+    const unsubscribeAuth = auth.onAuthStateChanged((firebaseUser) => {
       if (firebaseUser) {
-        const foundUser = users.find(u => u.id === firebaseUser.uid);
-        if (foundUser) setCurrentUser(foundUser);
+          setAuthUid(firebaseUser.uid);
       } else {
-        setCurrentUser(null);
+          setAuthUid(null);
+          setCurrentUser(null);
+          setSentMessagesMap({});
+          setReceivedMessagesMap({});
+          setIsAuthChecking(false);
       }
     });
-    return () => unsubscribe();
-  }, [users]); 
+    return () => unsubscribeAuth();
+  }, []);
 
-  // --- Computed Lists ---
-  const availableInterests = React.useMemo(() => {
-    const userInterests = users.flatMap(u => u.interests || []);
-    return Array.from(new Set([...COMMON_INTERESTS, ...customInterests, ...userInterests])).sort();
-  }, [users, customInterests]);
+  // 2. Profile Sync
+  useEffect(() => {
+    if (!authUid) return;
+    const unsub = db.collection("users").doc(authUid).onSnapshot(
+      doc => {
+        if (doc.exists) {
+          setCurrentUser({ ...doc.data() as UserProfile, id: doc.id });
+        }
+        setIsAuthChecking(false);
+      },
+      err => { setIsAuthChecking(false); }
+    );
+    return () => unsub();
+  }, [authUid]);
 
-  const availableCategories = React.useMemo(() => {
-    const userFields = users.map(u => u.mainField).filter(Boolean);
-    return Array.from(new Set([...CATEGORIES, ...customCategories, ...userFields])).sort();
-  }, [users, customCategories]);
+  // 3. Main Data Fetch
+  useEffect(() => {
+    const unsubOffers = db.collection("offers").onSnapshot(
+        s => { 
+            let f: any[] = []; 
+            s.forEach(d => f.push({...d.data(), id: d.id})); 
+            setOffers(f); 
+            setIsOffersLoading(false); 
+        },
+        e => { setIsOffersLoading(false); }
+    );
+    const unsubAds = db.collection("systemAds").onSnapshot(
+        s => { let f: any[] = []; s.forEach(d => f.push({...d.data(), id: d.id})); setSystemAds(f); }
+    );
+    const unsubTax = db.collection("system").doc("taxonomy").onSnapshot(
+        d => d.exists && setTaxonomy(d.data() as SystemTaxonomy)
+    );
+    return () => { unsubOffers(); unsubAds(); unsubTax(); };
+  }, [authUid]);
+
+  // 4. Messaging Listener
+  useEffect(() => {
+    if (!authUid) {
+        setSentMessagesMap({});
+        setReceivedMessagesMap({});
+        return;
+    }
+
+    const q1 = db.collection("messages").where("senderId", "==", authUid);
+    const unsubSent = q1.onSnapshot(
+        snapshot => {
+            const msgs: Record<string, Message> = {};
+            snapshot.forEach(doc => {
+                msgs[doc.id] = { ...doc.data(), id: doc.id } as Message;
+            });
+            setSentMessagesMap(msgs);
+        }, 
+        error => console.error("Error reading sent messages (q1):", error)
+    );
+
+    const q2 = db.collection("messages").where("receiverId", "==", authUid);
+    const unsubReceived = q2.onSnapshot(
+        snapshot => {
+            const msgs: Record<string, Message> = {};
+            snapshot.forEach(doc => {
+                msgs[doc.id] = { ...doc.data(), id: doc.id } as Message;
+            });
+            setReceivedMessagesMap(msgs);
+        }, 
+        error => console.error("Error reading received messages (q2):", error)
+    );
+
+    return () => {
+        unsubSent();
+        unsubReceived();
+    };
+  }, [authUid]);
+
+  // 5. Admin Data Fetch
+  useEffect(() => {
+    if (!authUid || !currentUser || currentUser.role !== 'admin') return;
+    const unsubUsers = db.collection("users").onSnapshot(
+      s => { let f: any[] = []; s.forEach(d => f.push({...d.data(), id: d.id})); setUsers(f); }
+    );
+    return () => { unsubUsers(); };
+  }, [authUid, currentUser?.role]);
+
+  // 6. Smart Match Email Logic - TRIGGER EMAIL via Firestore
+  useEffect(() => {
+      if (!currentUser || !offers.length || isOffersLoading) return;
+
+      const checkSmartMatch = async () => {
+          // Check if we should even run this (spam prevention)
+          if (currentUser.lastSmartMatchSent) {
+              const lastSent = new Date(currentUser.lastSmartMatchSent);
+              const now = new Date();
+              const diffTime = Math.abs(now.getTime() - lastSent.getTime());
+              const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+              
+              // Only send once every 7 days
+              if (diffDays < 7) return; 
+          }
+
+          // Calculate "For You" Matches
+          const myCategories = [currentUser.mainField, ...(currentUser.secondaryFields || [])];
+          const myInterests = currentUser.interests || [];
+          
+          const relevantOffers = offers.filter(o => {
+              if (o.profileId === currentUser.id || o.status !== 'active') return false;
+              // Check if offer needs my skills (requested service matches my field)
+              const requestedMatch = myCategories.some(cat => o.requestedService.includes(cat) || o.title.includes(cat));
+              // Check if offer provides something I'm interested in (tags/service match my interests)
+              const interestMatch = myInterests.some(int => o.tags.includes(int) || o.offeredService.includes(int));
+              return requestedMatch || interestMatch;
+          });
+
+          // Trigger Email if Matches > 5
+          if (relevantOffers.length >= 5) {
+              try {
+                  // Trigger Email Extension via Firestore 'mail' collection
+                  await db.collection('mail').add({
+                      to: currentUser.email,
+                      message: {
+                          subject: 'מצאנו עבורך פרויקטים חדשים!',
+                          html: getSmartMatchHtml(currentUser.name)
+                      }
+                  });
+
+                  // Update Timestamp
+                  await db.collection("users").doc(currentUser.id).update({
+                      lastSmartMatchSent: new Date().toISOString()
+                  });
+                  console.log("Smart match email trigger added to 'mail' collection");
+              } catch (e) {
+                  console.error("Failed to add smart match email trigger", e);
+              }
+          }
+      };
+
+      checkSmartMatch();
+  }, [currentUser, offers, isOffersLoading]);
+
+
+  // --- Computed ---
+  const messages = useMemo(() => {
+    const combinedMap = { ...sentMessagesMap, ...receivedMessagesMap };
+    return Object.values(combinedMap).sort((a: Message, b: Message) => {
+        const timeA = a.timestamp ? new Date(a.timestamp).getTime() : 0;
+        const timeB = b.timestamp ? new Date(b.timestamp).getTime() : 0;
+        return timeB - timeA; 
+    });
+  }, [sentMessagesMap, receivedMessagesMap]);
+
+  const availableInterests = useMemo(() => Array.from(new Set([...COMMON_INTERESTS, ...(taxonomy.approvedInterests || [])])).sort(), [taxonomy.approvedInterests]);
+  const availableCategories = useMemo(() => Array.from(new Set([...CATEGORIES, ...(taxonomy.approvedCategories || [])])).sort(), [taxonomy.approvedCategories]);
 
   // --- UI State ---
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [editingOffer, setEditingOffer] = useState<BarterOffer | null>(null);
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [authStartOnRegister, setAuthStartOnRegister] = useState(false);
-  const [isCompleteProfileModalOpen, setIsCompleteProfileModalOpen] = useState(false);
   const [isMessagingModalOpen, setIsMessagingModalOpen] = useState(false);
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
-  const [isUserManagementOpen, setIsUserManagementOpen] = useState(false);
-  const [isAdminOffersOpen, setIsAdminOffersOpen] = useState(false);
-  const [isAdManagerOpen, setIsAdManagerOpen] = useState(false);
-  const [isAdminAnalyticsOpen, setIsAdminAnalyticsOpen] = useState(false);
+  const [isAdminDashboardOpen, setIsAdminDashboardOpen] = useState(false);
+  const [isEmailCenterOpen, setIsEmailCenterOpen] = useState(false);
   const [isHowItWorksOpen, setIsHowItWorksOpen] = useState(false);
   const [isWhoIsItForOpen, setIsWhoIsItForOpen] = useState(false);
   const [isSearchTipsOpen, setIsSearchTipsOpen] = useState(false);
   const [isAccessibilityOpen, setIsAccessibilityOpen] = useState(false);
-  
+  const [isPrivacyPolicyOpen, setIsPrivacyPolicyOpen] = useState(false); 
+  const [isPostRegisterPromptOpen, setIsPostRegisterPromptOpen] = useState(false);
+  const [isProfessionalismPromptOpen, setIsProfessionalismPromptOpen] = useState(false);
+  const [profileModalStartEdit, setProfileModalStartEdit] = useState(false);
   const [selectedProfile, setSelectedProfile] = useState<UserProfile | null>(null);
   const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
   const [initialMessageSubject, setInitialMessageSubject] = useState<string>('');
-  
-  // Search & Filter State
+  const [viewFilter, setViewFilter] = useState<'all' | 'for_you'>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
-  const [locationInput, setLocationInput] = useState<string>('');
-  const [keywordInput, setKeywordInput] = useState<string>('');
-  const [locationFilter, setLocationFilter] = useState<string>('');
-  const [keywordFilter, setKeywordFilter] = useState<string>('');
   const [durationFilter, setDurationFilter] = useState<'all' | 'one-time' | 'ongoing'>('all');
   const [sortBy, setSortBy] = useState<'newest' | 'rating' | 'deadline'>('newest');
-
-  // Sticky Filter
-  const [isSticky, setIsSticky] = useState(false);
-  const [isFilterOpen, setIsFilterOpen] = useState(true);
-  const lastScrollY = useRef(0);
   const [viewMode, setViewMode] = useState<'grid' | 'compact'>('grid');
+  const [visibleCount, setVisibleCount] = useState(12); 
 
-  // --- Scroll & Sticky Logic ---
-  useEffect(() => {
-    const handleScroll = () => {
-      const currentScrollY = window.scrollY;
-      const threshold = 100;
-
-      if (currentScrollY > threshold) {
-        if (!isSticky) {
-          setIsSticky(true);
-          setIsFilterOpen(false);
+  // --- Handlers ---
+  const handleRegister = async (u: Partial<UserProfile>, p: string) => {
+    try {
+        const cred = await auth.createUserWithEmailAndPassword(u.email!, p);
+        const uid = cred.user!.uid;
+        const profileData = { ...u, id: uid, role: u.email === ADMIN_EMAIL ? 'admin' : 'user', joinedAt: new Date().toISOString() };
+        await db.collection("users").doc(uid).set(profileData);
+        
+        // -----------------------
+        // TRIGGER: Welcome Email via Firestore Extension
+        // -----------------------
+        if (u.email) {
+            db.collection('mail').add({
+                to: u.email,
+                message: {
+                    subject: 'ברוכים הבאים ל-Barter.org.il!',
+                    html: getWelcomeHtml(u.name || 'משתמש חדש')
+                }
+            }).catch(err => console.error("Welcome email trigger failed", err));
         }
-      } else {
-        if (isSticky) {
-          setIsSticky(false);
-          setIsFilterOpen(true);
+
+        setIsAuthModalOpen(false);
+        // Show the post-registration onboarding popup
+        setIsPostRegisterPromptOpen(true);
+    } catch (e: any) { 
+        console.error("Registration Error:", e);
+        if (e.code && e.code.startsWith('auth/')) {
+            alert(translateAuthError(e.code));
+        } else if (e.toString().includes("maximum allowed size") || e.code === 'invalid-argument') {
+            alert("שגיאה ביצירת הפרופיל: התמונות שבחרת גדולות מדי. אנא נסה להירשם עם תמונה קלה יותר או פחות תמונות בגלריה.");
+        } else {
+            alert("אירעה שגיאה כללית בתהליך ההרשמה. אנא נסה שוב.");
         }
-      }
+    }
+  };
 
-      if (isSticky && isFilterOpen) {
-          if (Math.abs(currentScrollY - lastScrollY.current) > 20) {
-              setIsFilterOpen(false);
-          }
-      }
-      lastScrollY.current = currentScrollY;
-    };
-    window.addEventListener('scroll', handleScroll);
-    return () => window.removeEventListener('scroll', handleScroll);
-  }, [isSticky, isFilterOpen]);
-
-  // --- Debounce Filters ---
-  useEffect(() => {
-    const timer = setTimeout(() => setLocationFilter(locationInput), 300);
-    return () => clearTimeout(timer);
-  }, [locationInput]);
-
-  useEffect(() => {
-    const timer = setTimeout(() => setKeywordFilter(keywordInput), 300);
-    return () => clearTimeout(timer);
-  }, [keywordInput]);
-
-  // --- Handlers (FIREBASE IMPLEMENTATION) ---
-  const handleUpdateProfile = async (updatedProfileData: UserProfile) => {
+  const handleLogin = async (e: string, p: string) => { try { await auth.signInWithEmailAndPassword(e, p); setIsAuthModalOpen(false); } catch (e: any) { alert(translateAuthError(e.code)); } };
+  const handleLogout = async () => { await auth.signOut(); };
+  
+  const handleAddOffer = async (o: BarterOffer) => { 
+      if (!authUid) return; 
       try {
-          const isAdmin = currentUser?.role === 'admin';
-          let updatedUser: UserProfile;
-
-          if (isAdmin) {
-              updatedUser = { ...updatedProfileData, pendingUpdate: undefined };
-          } else {
-              const { pendingUpdate, ...currentMainData } = users.find(u => u.id === updatedProfileData.id) || updatedProfileData;
-              updatedUser = {
-                  ...currentMainData,
-                  pendingUpdate: { ...updatedProfileData }
-              } as UserProfile;
+          await db.collection("offers").doc(o.id).set(o);
+          if (o.profileId === authUid) {
+              setIsProfessionalismPromptOpen(true);
           }
+      } catch (e) {
+          console.error("Error adding offer:", e);
+      }
+  };
+
+  const handleRate = async (offerId: string, rating: number) => {
+      if (!authUid) return;
+      const offerRef = db.collection("offers").doc(offerId);
+      try {
+          await db.runTransaction(async (transaction) => {
+              const doc = await transaction.get(offerRef);
+              if (!doc.exists) return;
+              
+              const data = doc.data() as BarterOffer;
+              const ratings = data.ratings || [];
+              const existingIndex = ratings.findIndex(r => r.userId === authUid);
+              
+              let newRatings = [...ratings];
+              if (existingIndex > -1) {
+                  newRatings[existingIndex] = { userId: authUid, score: rating };
+              } else {
+                  newRatings.push({ userId: authUid, score: rating });
+              }
+              
+              const averageRating = newRatings.reduce((acc, curr) => acc + curr.score, 0) / newRatings.length;
+              
+              transaction.update(offerRef, {
+                  ratings: newRatings,
+                  averageRating: averageRating
+              });
+          });
+      } catch (e) {
+          console.error("Error rating offer:", e);
+          alert("אירעה שגיאה בשמירת הדירוג.");
+      }
+  };
+
+  const handleGlobalProfileUpdate = async (profileData: any) => {
+      try {
+          await db.collection("users").doc(profileData.id).set(profileData, { merge: true });
+
+          const cleanProfile = { ...profileData };
+          delete cleanProfile.pendingUpdate; 
+          delete cleanProfile.password; 
           
-          await setDoc(doc(db, "users", updatedUser.id), updatedUser, { merge: true });
-          if (currentUser?.id === updatedUser.id) setCurrentUser(updatedUser);
-      } catch (error) {
-          console.error("Error updating profile:", error);
-          alert("שגיאה בעדכון הפרופיל");
+          const offersSnap = await db.collection("offers").where("profileId", "==", profileData.id).get();
+          const batch = db.batch();
+          
+          if (!offersSnap.empty) {
+              offersSnap.forEach(doc => {
+                  batch.update(doc.ref, { profile: cleanProfile });
+              });
+              await batch.commit();
+          }
+      } catch (e) {
+          console.error("Global Update Error:", e);
+          alert("אירעה שגיאה בעדכון הגורף של הפרופיל.");
       }
   };
 
-  const handleApproveUserUpdate = async (userId: string) => {
-      const user = users.find(u => u.id === userId);
-      if (!user || !user.pendingUpdate) return;
-      const updatedUser: UserProfile = { ...user, ...user.pendingUpdate, pendingUpdate: undefined };
-      try {
-          await setDoc(doc(db, "users", userId), updatedUser);
-          if (selectedProfile?.id === userId) setSelectedProfile(updatedUser);
-      } catch (error) { console.error(error); }
-  };
-
-  const handleRejectUserUpdate = async (userId: string) => {
-      try {
-        await updateDoc(doc(db, "users", userId), { pendingUpdate: undefined });
-        const user = users.find(u => u.id === userId);
-        if (user && selectedProfile?.id === userId) setSelectedProfile({ ...user, pendingUpdate: undefined });
-      } catch (error) { console.error(error); }
-  };
-
-  const handleRegister = async (newUser: Partial<UserProfile>, pass: string) => {
-    try {
-        const userCredential = await createUserWithEmailAndPassword(auth, newUser.email!, pass);
-        const uid = userCredential.user.uid;
-        const userProfile: UserProfile = {
-            id: uid,
-            name: newUser.name || 'משתמש חדש',
-            email: newUser.email,
-            role: newUser.email === ADMIN_EMAIL ? 'admin' : 'user',
-            avatarUrl: newUser.avatarUrl || `https://ui-avatars.com/api/?name=${newUser.name}&background=random`,
-            portfolioUrl: newUser.portfolioUrl || '',
-            portfolioImages: newUser.portfolioImages || [],
-            expertise: newUser.expertise || ExpertiseLevel.MID,
-            mainField: newUser.mainField || 'כללי',
-            interests: newUser.interests || [],
-            joinedAt: new Date().toISOString()
-        };
-        await setDoc(doc(db, "users", uid), userProfile);
-        setCurrentUser(userProfile);
-        setIsAuthModalOpen(false);
-        if (!userProfile.portfolioUrl && (!userProfile.portfolioImages || userProfile.portfolioImages.length === 0)) {
-            setIsCompleteProfileModalOpen(true);
+  const filteredOffers = useMemo(() => {
+    return offers.filter(o => {
+      const isMine = authUid && o.profileId === authUid;
+      const isAdmin = currentUser?.role === 'admin';
+      if (o.status !== 'active' && !isMine && !isAdmin) return false; 
+      const q = searchQuery.toLowerCase();
+      if (searchQuery && !((o.title||'').toLowerCase().includes(q) || (o.description||'').toLowerCase().includes(q))) return false;
+      if (durationFilter !== 'all' && o.durationType !== durationFilter) return false;
+      if (selectedCategories.length > 0) {
+          const matches = selectedCategories.some(c => (o.tags || []).includes(c) || (o.offeredService || '').includes(c));
+          if (!matches) return false;
+      }
+      return true;
+    }).sort((a, b) => {
+        if (sortBy === 'newest') return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+        if (sortBy === 'rating') return (b.averageRating || 0) - (a.averageRating || 0);
+        if (sortBy === 'deadline') {
+            if (!a.expirationDate) return 1;
+            if (!b.expirationDate) return -1;
+            return new Date(a.expirationDate).getTime() - new Date(b.expirationDate).getTime();
         }
-    } catch (error: any) { alert(`שגיאה בהרשמה: ${error.message}`); }
+        return 0;
+    });
+  }, [offers, authUid, currentUser?.role, searchQuery, durationFilter, selectedCategories, sortBy]);
+
+  // Reset visible count when filters change to maintain fast perceived performance
+  useEffect(() => {
+      setVisibleCount(12);
+  }, [searchQuery, durationFilter, selectedCategories, sortBy, viewFilter]);
+
+  const visibleOffers = useMemo(() => {
+      return filteredOffers.slice(0, visibleCount);
+  }, [filteredOffers, visibleCount]);
+
+  const handleLoadMore = () => {
+      setVisibleCount(prev => prev + 12);
   };
-
-  const handleLogin = async (email: string, pass: string) => {
-    try {
-        await signInWithEmailAndPassword(auth, email, pass);
-        setIsAuthModalOpen(false);
-    } catch (error: any) { alert("שגיאה בהתחברות. בדוק את המייל והסיסמה."); }
-  };
-
-  const handleCompleteProfile = (data: { portfolioUrl: string, portfolioImages: string[] }) => {
-    if (!currentUser) return;
-    const updatedData: UserProfile = { ...currentUser, ...data };
-    handleUpdateProfile(updatedData);
-    setIsCompleteProfileModalOpen(false);
-  };
-
-  const handleLogout = async () => {
-    await signOut(auth);
-    setCurrentUser(null);
-  };
-
-  const handleAddOffer = async (newOffer: BarterOffer) => {
-    try { await setDoc(doc(db, "offers", newOffer.id), newOffer); } 
-    catch (error) { alert("שגיאה בפרסום ההצעה"); }
-  };
-
-  const handleUpdateOffer = async (updatedOffer: BarterOffer) => {
-      const isAdmin = currentUser?.role === 'admin';
-      const offerToSave: BarterOffer = {
-        ...updatedOffer,
-        status: isAdmin ? updatedOffer.status : 'pending',
-        ratings: [], 
-        averageRating: 0
-      };
-      try { await setDoc(doc(db, "offers", updatedOffer.id), offerToSave, { merge: true }); } 
-      catch (error) { console.error(error); }
-  };
-  
-  const handleRateOffer = async (offerId: string, score: number) => {
-    if (!currentUser) return;
-    const offer = offers.find(o => o.id === offerId);
-    if (!offer) return;
-    const currentRatings = offer.ratings || [];
-    const filteredRatings = currentRatings.filter(r => r.userId !== currentUser.id);
-    const newRatings = [...filteredRatings, { userId: currentUser.id, score }];
-    const total = newRatings.reduce((sum, r) => sum + r.score, 0);
-    const average = parseFloat((total / newRatings.length).toFixed(1));
-    try { await updateDoc(doc(db, "offers", offerId), { ratings: newRatings, averageRating: average }); } 
-    catch (error) { console.error(error); }
-  };
-
-  const handleDeleteOffer = async (offerId: string) => {
-      try { await deleteDoc(doc(db, "offers", offerId)); } catch (error) { console.error(error); }
-  };
-
-  const handleApproveOffer = async (offerId: string) => {
-      try { await updateDoc(doc(db, "offers", offerId), { status: 'active' }); } catch (error) { console.error(error); }
-  };
-
-  const handleBulkDelete = async (dateThreshold: string) => {
-      const threshold = new Date(dateThreshold);
-      const toDelete = offers.filter(o => new Date(o.createdAt) < threshold);
-      try { for (const offer of toDelete) await deleteDoc(doc(db, "offers", offer.id)); } 
-      catch (error) { console.error(error); }
-  };
-
-  const handleSendMessage = async (receiverId: string, receiverName: string, subject: string, content: string) => {
-    const newMessage: Message = {
-      id: Date.now().toString(),
-      senderId: currentUser?.id || 'guest',
-      receiverId,
-      senderName: currentUser?.name || 'אורח',
-      receiverName,
-      subject,
-      content,
-      timestamp: new Date().toISOString(),
-      isRead: false
-    };
-    try { await setDoc(doc(db, "messages", newMessage.id), newMessage); } catch (error) { console.error(error); }
-  };
-
-  const handleMarkAsRead = async (messageId: string) => {
-      try { await updateDoc(doc(db, "messages", messageId), { isRead: true }); } catch (error) { console.error(error); }
-  };
-
-  // --- Ad Manager Handlers ---
-  const handleAddAd = async (newAd: SystemAd) => { try { await setDoc(doc(db, "systemAds", newAd.id), newAd); } catch (error) { console.error(error); } };
-  const handleEditAd = async (updatedAd: SystemAd) => { try { await setDoc(doc(db, "systemAds", updatedAd.id), updatedAd); } catch (error) { console.error(error); } };
-  const handleDeleteAd = async (adId: string) => { try { await deleteDoc(doc(db, "systemAds", adId)); } catch (error) { console.error(error); } };
-
-  // --- Contact & Modals ---
-  const handleContact = (profile: UserProfile, offerTitle?: string) => {
-    if (!currentUser) { setAuthStartOnRegister(false); setIsAuthModalOpen(true); return; }
-    if (profile.id === currentUser.id) { alert("זוהי ההצעה שלך :)"); return; }
-    setSelectedProfile(profile);
-    setInitialMessageSubject(offerTitle ? `התעניינות ב: ${offerTitle}` : '');
-    setIsMessagingModalOpen(true);
-  };
-
-  const handleViewProfile = (profile: UserProfile) => {
-    setSelectedProfile(currentUser && profile.id === currentUser.id ? currentUser : profile);
-    setIsProfileModalOpen(true);
-  };
-
-  const handleOpenCreate = () => {
-    if (!currentUser) { setAuthStartOnRegister(true); setIsAuthModalOpen(true); return; }
-    setEditingOffer(null);
-    setIsCreateModalOpen(true);
-  };
-
-  const handleOpenMessages = () => {
-    if (!currentUser) { setAuthStartOnRegister(false); setIsAuthModalOpen(true); return; }
-    setSelectedProfile(null);
-    setInitialMessageSubject('');
-    setIsMessagingModalOpen(true);
-  };
-  
-  const toggleCategory = (category: string) => {
-      if (category === 'הכל') { setSelectedCategories([]); return; }
-      setSelectedCategories(prev => prev.includes(category) ? prev.filter(c => c !== category) : [...prev, category]);
-  };
-
-  const handleResetFilters = () => {
-      setSearchQuery(''); setKeywordFilter(''); setKeywordInput(''); setLocationFilter(''); setLocationInput(''); setDurationFilter('all'); setSelectedCategories([]);
-  };
-
-  // --- Filter & Sort Logic ---
-  const filteredOffers = offers.filter(offer => {
-    const isMine = currentUser && offer.profileId === currentUser.id;
-    const isAdmin = currentUser?.role === 'admin';
-    if (offer.status !== 'active' && !isMine && !isAdmin) return false; 
-
-    // Defensive Extraction
-    const title = offer.title || '';
-    const offeredService = offer.offeredService || '';
-    const requestedService = offer.requestedService || '';
-    const description = offer.description || '';
-    const location = offer.location || '';
-    const tags = Array.isArray(offer.tags) ? offer.tags : [];
-    const mainField = offer.profile?.mainField || '';
-
-    if (searchQuery) {
-        const query = searchQuery.toLowerCase();
-        if (!(title.toLowerCase().includes(query) || offeredService.toLowerCase().includes(query) || requestedService.toLowerCase().includes(query) || description.toLowerCase().includes(query) || tags.some(t => (t || '').toLowerCase().includes(query)))) return false;
-    }
-    if (keywordFilter) {
-        const query = keywordFilter.toLowerCase();
-        if (!(title.toLowerCase().includes(query) || offeredService.toLowerCase().includes(query) || requestedService.toLowerCase().includes(query))) return false;
-    }
-    if (locationFilter && !location.toLowerCase().includes(locationFilter.toLowerCase())) return false;
-    if (durationFilter !== 'all' && offer.durationType !== durationFilter) return false;
-    if (selectedCategories.length > 0) {
-        if (!(selectedCategories.includes(mainField) || tags.some(tag => selectedCategories.includes(tag || '')))) return false;
-    }
-    return true;
-  }).sort((a, b) => {
-      if (sortBy === 'deadline') {
-          const aHasDate = !!a.expirationDate;
-          const bHasDate = !!b.expirationDate;
-          if (aHasDate && !bHasDate) return -1;
-          if (!aHasDate && bHasDate) return 1;
-          if (aHasDate && bHasDate) return new Date(a.expirationDate!).getTime() - new Date(b.expirationDate!).getTime();
-      } else if (sortBy === 'rating') {
-          if (b.averageRating !== a.averageRating) return b.averageRating - a.averageRating;
-      }
-      const dateA = new Date(a.createdAt).getTime();
-      const dateB = new Date(b.createdAt).getTime();
-      if (dateA !== dateB) return dateB - dateA;
-      if (currentUser && selectedCategories.length === 0) {
-          const userInterests = currentUser.interests || [];
-          const aRelevance = (a.requestedService.includes(currentUser.mainField) ? 2 : 0) + (a.tags.some(t => userInterests.includes(t)) ? 1 : 0);
-          const bRelevance = (b.requestedService.includes(currentUser.mainField) ? 2 : 0) + (b.tags.some(t => userInterests.includes(t)) ? 1 : 0);
-          return bRelevance - aRelevance;
-      }
-      return 0;
-  });
-
-  const unreadCount = messages.filter(m => m.receiverId === currentUser?.id && !m.isRead).length;
-  const userOffers = offers.filter(o => {
-      const isOwner = selectedProfile?.id === currentUser?.id;
-      const isAdmin = currentUser?.role === 'admin';
-      const belongsToProfile = o.profileId === (selectedProfile?.id || currentUser?.id);
-      if (!belongsToProfile) return false;
-      return (isOwner || isAdmin) ? true : o.status === 'active';
-  });
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col font-sans">
+      <AccessibilityToolbar />
       <Navbar 
         currentUser={currentUser}
-        onOpenCreateModal={handleOpenCreate}
-        onOpenMessages={handleOpenMessages}
+        onOpenCreateModal={() => { if(!authUid){ setAuthStartOnRegister(true); setIsAuthModalOpen(true); return; } setEditingOffer(null); setIsCreateModalOpen(true); }}
+        onOpenMessages={() => { if(!authUid){ setIsAuthModalOpen(true); return; } setIsMessagingModalOpen(true); }}
         onOpenAuth={() => { setAuthStartOnRegister(false); setIsAuthModalOpen(true); }}
-        onOpenProfile={() => { setSelectedProfile(currentUser); setIsProfileModalOpen(true); }}
-        onOpenUserManagement={() => setIsUserManagementOpen(true)}
-        onOpenAdminOffers={() => setIsAdminOffersOpen(true)}
-        onOpenAdManager={() => setIsAdManagerOpen(true)}
-        onOpenAnalytics={() => setIsAdminAnalyticsOpen(true)}
+        onOpenProfile={() => { setSelectedProfile(currentUser); setProfileModalStartEdit(false); setIsProfileModalOpen(true); }}
+        onOpenAdminDashboard={() => setIsAdminDashboardOpen(true)}
+        onOpenEmailCenter={() => setIsEmailCenterOpen(true)}
+        adminPendingCount={offers.filter(o => o.status === 'pending').length + users.filter(u => u.pendingUpdate).length}
         onLogout={handleLogout}
         onSearch={setSearchQuery}
-        unreadCount={unreadCount}
+        unreadCount={messages.filter(m => m.receiverId === authUid && !m.isRead).length}
         onOpenHowItWorks={() => setIsHowItWorksOpen(true)}
+        activeFeed={viewFilter}
+        onNavigate={setViewFilter}
       />
-      <Hero 
-        onOpenWhoIsItFor={() => setIsWhoIsItForOpen(true)}
-        onOpenSearchTips={() => setIsSearchTipsOpen(true)}
-      />
+      
+      {viewFilter === 'all' && <Hero currentUser={currentUser} onOpenWhoIsItFor={() => setIsWhoIsItForOpen(true)} onOpenSearchTips={() => setIsSearchTipsOpen(true)} />}
+
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 w-full flex-grow">
         <AdBanner contextCategories={selectedCategories} systemAds={systemAds} currentUser={currentUser} />
-        {/* Filters Bar */}
-        <div className={`bg-white rounded-2xl shadow-sm border border-slate-200 transition-all duration-300 mb-4 sticky top-16 z-30 ${isSticky ? 'py-2 px-3 sm:px-4' : 'p-3 sm:p-6'}`}>
-            <div className="flex flex-col md:flex-row gap-2 md:gap-4 items-center justify-between">
-                 <div className="flex items-center justify-between w-full gap-2">
-                     <div className={`flex items-center gap-2 cursor-pointer ${isSticky ? 'flex-1' : ''}`} onClick={() => isSticky && setIsFilterOpen(!isFilterOpen)}>
-                        <div className="bg-brand-100 p-2 rounded-lg text-brand-700 shrink-0"><Filter className="w-5 h-5" /></div>
-                        <span className={`font-bold text-slate-800 whitespace-nowrap ${isSticky ? 'text-sm' : ''} ${isSticky && viewMode === 'compact' ? 'hidden sm:block' : ''}`}>{isSticky ? 'סינון' : 'סינון הצעות'}</span>
-                        {isSticky && <div className="text-slate-400 mr-2">{isFilterOpen ? <ChevronUp className="w-4 h-4"/> : <ChevronDown className="w-4 h-4"/>}</div>}
-                     </div>
-                     <div className="flex items-center gap-2 sm:gap-3 overflow-x-auto scrollbar-hide" onClick={(e) => e.stopPropagation()}>
-                         <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 p-1.5 rounded-lg h-10">
-                            <div className="relative group flex items-center">
-                                <ArrowUpDown className="w-4 h-4 text-slate-400 absolute right-2 pointer-events-none" />
-                                <select className="bg-transparent border-none text-xs sm:text-sm font-bold text-slate-700 focus:ring-0 cursor-pointer pr-7 pl-1 py-0 outline-none appearance-none hover:text-brand-600 transition-colors w-full sm:w-auto" value={sortBy} onChange={(e) => setSortBy(e.target.value as any)}>
-                                    <option value="newest">מודעות חדשות</option>
-                                    <option value="deadline">מסתיימות בקרוב</option>
-                                    <option value="rating">הכי מומלצות</option>
-                                </select>
-                            </div>
-                         </div>
-                         <div className="flex items-center gap-1 bg-slate-50 p-1 rounded-lg border border-slate-200 h-10 shrink-0">
-                            <button onClick={() => setViewMode('grid')} className={`p-1.5 rounded-md transition-all ${viewMode === 'grid' ? 'bg-white text-brand-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}><LayoutGrid className="w-4 h-4" /></button>
-                            <button onClick={() => setViewMode('compact')} className={`p-1.5 rounded-md transition-all ${viewMode === 'compact' ? 'bg-white text-brand-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}><ListIcon className="w-4 h-4" /></button>
-                         </div>
-                     </div>
-                 </div>
-                 {(!isSticky || isFilterOpen) && (
-                     <div className={`flex flex-col sm:flex-row gap-2 sm:gap-3 w-full flex-wrap items-center mt-2 sm:mt-4 ${isSticky ? 'animate-in fade-in slide-in-from-top-2' : ''}`}>
-                         <div className="flex flex-row gap-2 w-full sm:w-auto flex-1">
-                             <div className="relative group flex-1"><Search className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" /><input type="text" className="w-full pl-3 pr-9 py-2.5 bg-white border border-slate-300 rounded-xl text-sm focus:bg-white focus:ring-2 focus:ring-brand-200 focus:border-brand-500 outline-none transition-all shadow-sm" placeholder="חיפוש חופשי..." value={keywordInput} onChange={(e) => setKeywordInput(e.target.value)} onClick={(e) => e.stopPropagation()} /></div>
-                             <div className="relative group flex-1"><MapPin className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" /><input type="text" className="w-full pl-3 pr-9 py-2.5 bg-white border border-slate-300 rounded-xl text-sm focus:bg-white focus:ring-2 focus:ring-brand-200 focus:border-brand-500 outline-none transition-all shadow-sm" placeholder="חיפוש לפי עיר..." value={locationInput} onChange={(e) => setLocationInput(e.target.value)} onClick={(e) => e.stopPropagation()} /></div>
-                         </div>
-                         <div className="flex flex-row gap-2 w-full sm:w-auto">
-                            <div className="flex-1 sm:flex-none flex bg-slate-50 p-1 rounded-xl border border-slate-200 justify-center" onClick={(e) => e.stopPropagation()}>
-                                <button onClick={() => setDurationFilter('all')} className={`flex-1 sm:flex-none px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${durationFilter === 'all' ? 'bg-white shadow-sm text-slate-800' : 'text-slate-500 hover:text-slate-700'}`}>הכל</button>
-                                <button onClick={() => setDurationFilter('one-time')} className={`flex-1 sm:flex-none px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1 ${durationFilter === 'one-time' ? 'bg-white shadow-sm text-orange-600' : 'text-slate-500 hover:text-slate-700'}`}><Clock className="w-3 h-3" /><span className="inline">חד פעמי</span></button>
-                                <button onClick={() => setDurationFilter('ongoing')} className={`flex-1 sm:flex-none px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1 ${durationFilter === 'ongoing' ? 'bg-white shadow-sm text-blue-600' : 'text-slate-500 hover:text-slate-700'}`}><Repeat className="w-3 h-3" /><span className="inline">מתמשך</span></button>
-                            </div>
-                            <button onClick={(e) => { e.stopPropagation(); handleResetFilters(); }} className="flex items-center justify-center gap-1 px-3 py-2.5 text-red-500 bg-red-50 hover:bg-red-100 rounded-xl transition-colors font-medium text-xs border border-transparent hover:border-red-200 shrink-0" title="נקה את כל הסינונים"><XIcon className="w-4 h-4" /></button>
-                         </div>
-                     </div>
-                 )}
-            </div>
-            {(!isSticky || isFilterOpen) && (
-                <div className={isSticky ? 'animate-in fade-in slide-in-from-top-2' : ''}>
-                    <div className="h-px bg-slate-100 my-2 sm:my-3 w-full"></div>
-                    <div className="relative w-full overflow-hidden" onClick={(e) => e.stopPropagation()}>
-                        <div className="flex gap-2 overflow-x-auto pb-2 pt-2 scrollbar-hide select-none">
-                            <button onClick={() => toggleCategory('הכל')} className={`flex-shrink-0 px-4 py-2 rounded-full text-sm font-bold transition-all border ${selectedCategories.length === 0 ? 'bg-slate-900 text-white border-slate-900 shadow-md transform scale-105' : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300 hover:bg-slate-50'}`}>הכל</button>
-                            {availableCategories.map(category => (
-                                <button key={category} onClick={() => toggleCategory(category)} className={`flex-shrink-0 px-4 py-2 rounded-full text-sm font-bold transition-all border flex items-center gap-2 ${selectedCategories.includes(category) ? 'bg-brand-600 text-white border-brand-600 shadow-md transform scale-105' : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300 hover:bg-slate-50'}`}>{category}</button>
-                            ))}
+        
+        <FilterBar 
+            keywordInput={searchQuery} setKeywordInput={setSearchQuery}
+            locationInput="" setLocationInput={()=>{}}
+            durationFilter={durationFilter} setDurationFilter={setDurationFilter}
+            sortBy={sortBy} setSortBy={setSortBy}
+            viewMode={viewMode} setViewMode={setViewMode}
+            selectedCategories={selectedCategories} toggleCategory={c => setSelectedCategories(prev => c === 'הכל' ? [] : (prev.includes(c) ? prev.filter(x => x !== c) : [...prev, c]))}
+            displayedCategories={availableCategories} handleResetFilters={() => {setSearchQuery(''); setDurationFilter('all'); setSelectedCategories([]);}}
+            searchQuery={searchQuery} locationFilter="" keywordFilter={searchQuery}
+        />
+
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {isOffersLoading ? [1,2,3,4,5,6].map(i => <div key={i} className="h-64 bg-white rounded-xl skeleton"></div>) : (
+                <>
+                    {visibleOffers.map((o) => (
+                        <OfferCard 
+                            key={o.id} offer={o} 
+                            onContact={p => { setSelectedProfile(p); setInitialMessageSubject(o.title); setIsMessagingModalOpen(true); }} 
+                            onUserClick={p => { setSelectedProfile(p); setProfileModalStartEdit(false); setIsProfileModalOpen(true); }} 
+                            currentUserId={authUid || undefined} viewMode={viewMode}
+                            onRate={handleRate}
+                            onDelete={(authUid === o.profileId || currentUser?.role === 'admin') ? id => db.collection("offers").doc(id).delete() : undefined}
+                            onEdit={(authUid === o.profileId || currentUser?.role === 'admin') ? offer => { setEditingOffer(offer); setIsCreateModalOpen(true); } : undefined}
+                        />
+                    ))}
+                    {visibleCount >= filteredOffers.length && (
+                        <div onClick={() => setIsCreateModalOpen(true)} className="cursor-pointer border-2 border-dashed border-brand-300 rounded-xl p-10 flex flex-col items-center justify-center text-center hover:bg-brand-50 transition-all group">
+                            <div className="bg-brand-100 p-4 rounded-full mb-4 group-hover:scale-110 transition-transform"><Plus className="w-8 h-8 text-brand-600" /></div>
+                            <h3 className="text-xl font-bold text-slate-800">פרסם הצעה חדשה</h3>
                         </div>
-                    </div>
-                </div>
+                    )}
+                </>
             )}
         </div>
-        {isLoading ? (
-            <div className="flex items-center justify-center py-20"><Loader2 className="w-10 h-10 text-brand-500 animate-spin" /></div>
-        ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {filteredOffers.map((offer) => (
-                <OfferCard key={offer.id} offer={offer} onContact={(profile) => handleContact(profile, offer.title)} onUserClick={handleViewProfile} onRate={handleRateOffer} currentUserId={currentUser?.id} viewMode={viewMode} onDelete={handleDeleteOffer} />
-              ))}
-              <div onClick={handleOpenCreate} className={`cursor-pointer border-2 border-dashed border-brand-300 rounded-xl p-6 flex flex-col items-center justify-center text-center hover:bg-brand-50 transition-all group min-h-[150px] ${viewMode === 'grid' ? 'min-h-[350px]' : ''}`}>
-                   <div className="bg-brand-100 p-4 rounded-full mb-4 group-hover:scale-110 transition-transform shadow-sm"><Plus className="w-8 h-8 text-brand-600" /></div>
-                   <h3 className="text-xl font-bold text-slate-800">יש לך כישרון להציע?</h3>
-                   <p className="text-slate-500 mt-2 max-w-xs text-sm">הצטרף למאות בעלי עסקים שכבר מחליפים שירותים וחוסכים כסף.</p>
-                   <span className="mt-4 text-brand-600 font-bold bg-white px-4 py-2 rounded-full shadow-sm text-sm group-hover:shadow-md transition-shadow">פרסם הצעה חדשה &rarr;</span>
-              </div>
+
+        {/* Load More Button */}
+        {!isOffersLoading && visibleCount < filteredOffers.length && (
+            <div className="mt-12 flex justify-center">
+                <button 
+                    onClick={handleLoadMore}
+                    className="bg-white border border-slate-200 text-slate-700 px-8 py-3 rounded-full font-bold shadow-sm hover:shadow-md hover:bg-slate-50 transition-all flex items-center gap-2"
+                >
+                    <ChevronDown className="w-5 h-5 text-brand-600" />
+                    טען עוד הצעות
+                    <span className="text-xs text-slate-400 font-normal mr-1">({filteredOffers.length - visibleCount} נותרו)</span>
+                </button>
             </div>
         )}
-        {!isLoading && filteredOffers.length === 0 && (
-          <div className="text-center py-10 col-span-full"><h3 className="text-lg font-bold text-slate-700">לא נמצאו הצעות תואמות לסינון</h3><button onClick={handleResetFilters} className="mt-2 text-brand-600 font-bold hover:underline text-sm">נקה סינונים</button></div>
-        )}
       </main>
-      <Footer onOpenAccessibility={() => setIsAccessibilityOpen(true)} />
-      <CookieConsentModal />
-      <CompleteProfileModal isOpen={isCompleteProfileModalOpen} onClose={() => setIsCompleteProfileModalOpen(false)} onSave={handleCompleteProfile} />
-      <CreateOfferModal isOpen={isCreateModalOpen} onClose={() => setIsCreateModalOpen(false)} onAddOffer={handleAddOffer} onUpdateOffer={handleUpdateOffer} currentUser={currentUser || { ...{id:'guest', name:'אורח', avatarUrl:'', role:'user', expertise:ExpertiseLevel.JUNIOR, mainField:'', portfolioUrl:''}, id: 'temp' }} editingOffer={editingOffer} />
-      <MessagingModal isOpen={isMessagingModalOpen} onClose={() => setIsMessagingModalOpen(false)} currentUser={currentUser?.id || 'guest'} messages={messages} onSendMessage={handleSendMessage} onMarkAsRead={handleMarkAsRead} recipientProfile={selectedProfile} initialSubject={initialMessageSubject} />
-      <AuthModal isOpen={isAuthModalOpen} onClose={() => setIsAuthModalOpen(false)} onLogin={handleLogin} onRegister={handleRegister} startOnRegister={authStartOnRegister} availableCategories={availableCategories} availableInterests={availableInterests} />
-      <UsersListModal isOpen={isUserManagementOpen} onClose={() => setIsUserManagementOpen(false)} users={users} currentUser={currentUser} onDeleteUser={(id) => deleteDoc(doc(db, "users", id))} onApproveUpdate={handleApproveUserUpdate} onRejectUpdate={handleRejectUserUpdate} onViewProfile={handleViewProfile} />
-      <AdminOffersModal isOpen={isAdminOffersOpen} onClose={() => setIsAdminOffersOpen(false)} offers={offers} onDeleteOffer={handleDeleteOffer} onBulkDelete={handleBulkDelete} onApproveOffer={handleApproveOffer} onEditOffer={(offer) => { setEditingOffer(offer); setIsCreateModalOpen(true); setIsAdminOffersOpen(false); }} onViewProfile={handleViewProfile} />
-      <AdminAdManager isOpen={isAdManagerOpen} onClose={() => setIsAdManagerOpen(false)} ads={systemAds} availableInterests={availableInterests} availableCategories={availableCategories} onAddAd={handleAddAd} onEditAd={handleEditAd} onDeleteAd={handleDeleteAd} />
-      <AdminAnalyticsModal isOpen={isAdminAnalyticsOpen} onClose={() => setIsAdminAnalyticsOpen(false)} users={users} availableCategories={availableCategories} availableInterests={availableInterests} onAddCategory={(cat) => setCustomCategories(p => [...p, cat])} onAddInterest={(int) => setCustomInterests(p => [...p, int])} onDeleteCategory={(cat) => setCustomCategories(p => p.filter(c => c !== cat))} onDeleteInterest={(int) => setCustomInterests(p => p.filter(i => i !== int))} />
+
+      <Footer onOpenAccessibility={() => setIsAccessibilityOpen(true)} onOpenPrivacyPolicy={() => setIsPrivacyPolicyOpen(true)} />
+      
+      {isAdminDashboardOpen && (
+          <AdminDashboardModal 
+            isOpen={isAdminDashboardOpen} onClose={() => setIsAdminDashboardOpen(false)}
+            users={users} currentUser={currentUser} 
+            onDeleteUser={id => db.collection("users").doc(id).delete()}
+            onApproveUpdate={id => {
+                const u = users.find(x => x.id === id);
+                if (u && u.pendingUpdate) {
+                    const updatedProfile = { 
+                        ...u, 
+                        ...u.pendingUpdate, 
+                        pendingUpdate: firebase.firestore.FieldValue.delete() 
+                    };
+                    handleGlobalProfileUpdate(updatedProfile);
+                }
+            }} 
+            onRejectUpdate={id => db.collection("users").doc(id).update({ pendingUpdate: firebase.firestore.FieldValue.delete() })}
+            offers={offers} onDeleteOffer={id => db.collection("offers").doc(id).delete()}
+            onBulkDelete={date => {
+                offers.filter(o => new Date(o.createdAt) < new Date(date)).forEach(o => db.collection("offers").doc(o.id).delete());
+            }} 
+            onApproveOffer={id => db.collection("offers").doc(id).update({status:'active'})}
+            onEditOffer={o => { setEditingOffer(o); setIsCreateModalOpen(true); }}
+            availableCategories={availableCategories} availableInterests={availableInterests}
+            pendingCategories={taxonomy.pendingCategories || []} pendingInterests={taxonomy.pendingInterests || []}
+            categoryHierarchy={taxonomy.categoryHierarchy}
+            onAddCategory={cat => db.collection("system").doc("taxonomy").update({ approvedCategories: firebase.firestore.FieldValue.arrayUnion(cat) })} 
+            onAddInterest={int => db.collection("system").doc("taxonomy").update({ approvedInterests: firebase.firestore.FieldValue.arrayUnion(int) })} 
+            onDeleteCategory={cat => db.collection("system").doc("taxonomy").update({ approvedCategories: firebase.firestore.FieldValue.arrayRemove(cat) })} 
+            onDeleteInterest={int => db.collection("system").doc("taxonomy").update({ approvedInterests: firebase.firestore.FieldValue.arrayRemove(int) })}
+            onApproveCategory={cat => db.collection("system").doc("taxonomy").update({ approvedCategories: firebase.firestore.FieldValue.arrayUnion(cat), pendingCategories: firebase.firestore.FieldValue.arrayRemove(cat) })}
+            onRejectCategory={cat => db.collection("system").doc("taxonomy").update({ pendingCategories: firebase.firestore.FieldValue.arrayRemove(cat) })}
+            onReassignCategory={(oldC, newC) => db.collection("system").doc("taxonomy").update({ pendingCategories: firebase.firestore.FieldValue.arrayRemove(oldC), approvedCategories: firebase.firestore.FieldValue.arrayUnion(newC) })}
+            onApproveInterest={int => db.collection("system").doc("taxonomy").update({ approvedInterests: firebase.firestore.FieldValue.arrayUnion(int), pendingInterests: firebase.firestore.FieldValue.arrayRemove(int) })}
+            onRejectInterest={int => db.collection("system").doc("taxonomy").update({ pendingInterests: firebase.firestore.FieldValue.arrayRemove(int) })}
+            onEditCategory={(oldN, newN, p) => {
+                db.collection("system").doc("taxonomy").update({ approvedCategories: firebase.firestore.FieldValue.arrayRemove(oldN), [`categoryHierarchy.${newN}`]: p || firebase.firestore.FieldValue.delete() });
+                db.collection("system").doc("taxonomy").update({ approvedCategories: firebase.firestore.FieldValue.arrayUnion(newN) });
+            }}
+            onEditInterest={(oldN, newN) => { 
+                db.collection("system").doc("taxonomy").update({ approvedInterests: firebase.firestore.FieldValue.arrayRemove(oldN) }); 
+                db.collection("system").doc("taxonomy").update({ approvedInterests: firebase.firestore.FieldValue.arrayUnion(newN) }); 
+            }}
+            ads={systemAds} onAddAd={ad => db.collection("systemAds").doc(ad.id).set(ad)}
+            onEditAd={ad => db.collection("systemAds").doc(ad.id).set(ad)}
+            onDeleteAd={id => db.collection("systemAds").doc(id).delete()}
+            onViewProfile={u => { setSelectedProfile(u); setProfileModalStartEdit(false); setIsProfileModalOpen(true); }}
+          />
+      )}
+
+      <AuthModal isOpen={isAuthModalOpen} onClose={() => setIsAuthModalOpen(false)} onLogin={handleLogin} onRegister={handleRegister} startOnRegister={authStartOnRegister} availableCategories={availableCategories} availableInterests={availableInterests} onOpenPrivacyPolicy={() => setIsPrivacyPolicyOpen(false)} />
+      
+      <MessagingModal 
+        isOpen={isMessagingModalOpen} onClose={() => setIsMessagingModalOpen(false)} currentUser={authUid || 'guest'} messages={messages} 
+        onSendMessage={(rid, rn, s, c) => {
+            if (!authUid || !rid) return; 
+            const msgData = { senderId: authUid, receiverId: rid, participantIds: [authUid, rid], senderName: currentUser?.name || 'משתמש', receiverName: rn, subject: s, content: c, timestamp: new Date().toISOString(), isRead: false };
+            db.collection("messages").add(msgData);
+            
+            // -----------------------
+            // TRIGGER: Chat Alert Email via Firestore Extension
+            // -----------------------
+            db.collection("users").doc(rid).get().then(doc => {
+                const userData = doc.data() as UserProfile;
+                if (userData && userData.email) {
+                     db.collection('mail').add({
+                        to: userData.email,
+                        message: {
+                            subject: `הודעה חדשה מ-${currentUser?.name || 'משתמש'}`,
+                            html: getChatHtml(userData.name, currentUser?.name || 'משתמש')
+                        }
+                    }).catch(err => console.error("Chat alert email trigger failed", err));
+                }
+            });
+        }} 
+        onMarkAsRead={id => { if (!authUid) return; db.collection("messages").doc(id).update({ isRead: true }); }} 
+        recipientProfile={selectedProfile} initialSubject={initialMessageSubject} 
+      />
+
+      <ProfileModal 
+        isOpen={isProfileModalOpen} 
+        onClose={() => setIsProfileModalOpen(false)} 
+        profile={selectedProfile} 
+        currentUser={currentUser} 
+        userOffers={offers.filter(o => o.profileId === selectedProfile?.id)} 
+        onDeleteOffer={id => db.collection("offers").doc(id).delete()} 
+        onUpdateProfile={handleGlobalProfileUpdate} 
+        onContact={p => { setSelectedProfile(p); setIsMessagingModalOpen(true); }} 
+        onRate={handleRate}
+        availableCategories={availableCategories} 
+        availableInterests={availableInterests} 
+        onOpenCreateOffer={p => { setSelectedProfile(p); setIsCreateModalOpen(true); }} 
+        startInEditMode={profileModalStartEdit} 
+      />
+      
+      <CreateOfferModal isOpen={isCreateModalOpen} onClose={() => { setIsCreateModalOpen(false); setEditingOffer(null); }} onAddOffer={handleAddOffer} currentUser={currentUser || {id:'guest'} as UserProfile} editingOffer={editingOffer} onUpdateOffer={o => db.collection("offers").doc(o.id).set(o)} />
+      
+      <PostRegisterPrompt 
+        isOpen={isPostRegisterPromptOpen} 
+        onClose={() => setIsPostRegisterPromptOpen(false)} 
+        onStartOffer={() => { setIsPostRegisterPromptOpen(false); setIsCreateModalOpen(true); }} 
+        userName={currentUser?.name || ''} 
+      />
+
+      <ProfessionalismPrompt 
+        isOpen={isProfessionalismPromptOpen}
+        onClose={() => setIsProfessionalismPromptOpen(false)}
+        onEditProfile={() => { setIsProfessionalismPromptOpen(false); setSelectedProfile(currentUser); setProfileModalStartEdit(true); setIsProfileModalOpen(true); }}
+        userName={currentUser?.name || ''}
+      />
+
+      <EmailCenterModal isOpen={isEmailCenterOpen} onClose={() => setIsEmailCenterOpen(false)} />
       <HowItWorksModal isOpen={isHowItWorksOpen} onClose={() => setIsHowItWorksOpen(false)} />
-      <WhoIsItForModal isOpen={isWhoIsItForOpen} onClose={() => setIsWhoIsItForOpen(false)} onOpenAuth={() => { setAuthStartOnRegister(true); setIsAuthModalOpen(true); }} />
-      <SearchTipsModal isOpen={isSearchTipsOpen} onClose={() => setIsSearchTipsOpen(false)} onStartSearching={() => { setIsSearchTipsOpen(false); window.scrollTo({ top: 600, behavior: 'smooth' }); }} />
+      <WhoIsItForModal isOpen={isWhoIsItForOpen} onClose={() => setIsWhoIsItForOpen(false)} onOpenAuth={() => setIsAuthModalOpen(true)} />
+      <SearchTipsModal isOpen={isSearchTipsOpen} onClose={() => setIsSearchTipsOpen(false)} onStartSearching={() => {}} />
       <AccessibilityModal isOpen={isAccessibilityOpen} onClose={() => setIsAccessibilityOpen(false)} />
-      <ProfileModal isOpen={isProfileModalOpen} onClose={() => setIsProfileModalOpen(false)} profile={selectedProfile} currentUser={currentUser} userOffers={userOffers} onDeleteOffer={handleDeleteOffer} onUpdateProfile={handleUpdateProfile} onContact={(profile) => handleContact(profile)} onRate={handleRateOffer} availableCategories={availableCategories} availableInterests={availableInterests} onApproveUpdate={handleApproveUserUpdate} onRejectUpdate={handleRejectUserUpdate} />
+      <PrivacyPolicyModal isOpen={isPrivacyPolicyOpen} onClose={() => setIsPrivacyPolicyOpen(false)} />
+      <CookieConsentModal />
     </div>
   );
 };
